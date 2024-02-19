@@ -1,9 +1,0 @@
-Checks:
-    bugprone-*,
-    cert-*,
-    cppcoreguidelines-*,
-    misc-*,
-    modernize-*,
-    portability-*,
-    readability-*,
-    -misc-include-cleaner
