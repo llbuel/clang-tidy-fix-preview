@@ -16,4 +16,6 @@ int main() {
     v.push_back(3);
 
     printVector(v);
+
+    return 0;
 }

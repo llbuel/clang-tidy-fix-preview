@@ -1,6 +1,6 @@
 {
   "name": "clang-tidy-fix-preview",
-  "displayName": "clang-tidy Fix Preview",
+  "displayName": "clang-tidy Auto Preview",
   "description": "An extension that shows a preview of code changes suggested by clang-tidy in a new pane.",
   "version": "1.0.0",
   "engines": {
@@ -15,9 +15,13 @@
     "commands": [
       {
         "command": "clang-tidy-fix-preview.previewFixes",
-        "title": "clang-tidy Fix Preview: Generate Preview of clang-tidy Fixes"
+        "title": "clang-tidy Auto Preview: Generate Preview of clang-tidy Fixes"
       }
     ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/user/repo.git"
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
