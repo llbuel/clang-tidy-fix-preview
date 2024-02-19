@@ -1,4 +1,5 @@
 .vscode
+.clang-tidy
 .eslintrc.json
 node_modules
 out
