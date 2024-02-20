@@ -6,4 +6,3 @@ Checks:
     modernize-*,
     portability-*,
     readability-*,
-    -misc-include-cleaner
