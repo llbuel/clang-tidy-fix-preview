@@ -14,16 +14,17 @@ export function activate(context: vscode.ExtensionContext) {
 
         if (activeEditor) {
             // Get the active file
-            let activeFile = activeEditor.document.fileName;
+            let activeFileName = activeEditor.document.fileName;
+            let activeFile = activeEditor.document.uri;
 
             // Check that the file is supported by clang-tidy checking
-            if (!checkFileType(path.parse(activeFile).ext)) {
+            if (!checkFileType(path.parse(activeFileName).ext)) {
                 throw new Error('This file type is not supported by clang-tidy.');
             }
 
             // Parse the file and get just the filename and extension
-            let activeFileNameWithoutExtension = path.parse(activeFile).name;
-            let activeFileExt = path.parse(activeFile).ext;
+            let activeFileNameWithoutExtension = path.parse(activeFileName).name;
+            let activeFileExt = path.parse(activeFileName).ext;
             let fullFilename = activeFileNameWithoutExtension + activeFileExt;
 
             if (activeFilePath && activeFileNameWithoutExtension) {
@@ -35,14 +36,32 @@ export function activate(context: vscode.ExtensionContext) {
                         throw new Error('clang-tidy is not installed.');
                     }
                 });
-                childProcess.execSync(`clang-tidy --export-fixes=${clangTidyOutFile} ${activeFilePath} --`);
+
+                // Get user's include paths
+                const workspaceConfigFiles = await vscode.workspace.findFiles('**/c_cpp_properties.json');
+
+                if (workspaceConfigFiles.length > 0) {
+                    const c_cpp_FileContent = fs.readFileSync(workspaceConfigFiles[0].fsPath, 'utf8');
+                    const c_cpp_jsonContent = JSON.parse(c_cpp_FileContent);
+                    const includePaths = c_cpp_jsonContent.configurations[0].includePath;
+                    let clangIncludeOptions = includePaths.map((path: string) => `-I${resolvePath(path, activeFile)}`).join(' ');
+                
+                    childProcess.execSync(`clang-tidy --export-fixes=${clangTidyOutFile} ${activeFilePath} -- ${clangIncludeOptions}`);
+                } else {
+                    childProcess.exec(`clang-tidy --export-fixes=${clangTidyOutFile} ${activeFilePath} --`, (error, stdout, stderr) => {
+                        if (error) {
+                            throw new Error('No include paths found.\n\nAdd your include paths to .vscode/c_cpp_properties.json:\n\n"includePaths": ["/path/to/include1", "/path/to/include2"]');
+                        }
+                    });
+                }
+                
                 let clangTidyYAMLOutput = fs.readFileSync(clangTidyOutFile, 'utf8');
     
                 // Parse the YAML output to get the suggested fixes
                 let suggestedFixes = parseYAMLOutput(clangTidyYAMLOutput);
     
                 // Read the original code file
-                let originalCode = fs.readFileSync(activeFile, 'utf8');
+                let originalCode = fs.readFileSync(activeFileName, 'utf8');
     
                 // Apply the suggested fixes to the original code to generate the fixed code
                 let fixedCode = applyFixes(originalCode, suggestedFixes, fullFilename);
@@ -146,12 +165,29 @@ function applyFixes(originalCode: string, suggestedFixes: Array<{Comment: {Check
 
     // Group the fixes by line number
     const fixesByLine: { [key: number]: Array<{Comment: {Check: string, Message: string, FileOffset: number}, Fixes: Array<{ReplacementText: string, Offset: number, Length: number}>}> } = {};
-    for (const fix of suggestedFixes) {
-        const lineNum = originalCode.substring(0, fix.Comment.FileOffset).split('\n').length-1;
-        if (!fixesByLine[lineNum]) {
-            fixesByLine[lineNum] = [];
+
+    let lineNum = 0;
+    let inString = false;
+    let inChar = false;
+
+    for (let i = 0; i < originalCode.length; i++) {
+        const char = originalCode[i];
+        if (char === '"') {
+            inString = !inString;
+        } else if (char === "'") {
+            inChar = !inChar;
+        } else if (char === '\n' && !inString && !inChar) {
+            lineNum++;
         }
-        fixesByLine[lineNum].push(fix);
+
+        for (const fix of suggestedFixes) {
+            if (i === fix.Comment.FileOffset) {
+                if (!fixesByLine[lineNum]) {
+                    fixesByLine[lineNum] = [];
+                }
+                fixesByLine[lineNum].push(fix);
+            }
+        }
     }
 
     const sortedLineNums = Object.keys(fixesByLine).map(Number).sort((a, b) => b - a);
@@ -194,6 +230,25 @@ function applyFixes(originalCode: string, suggestedFixes: Array<{Comment: {Check
     fixedStrOut = headerStr + fixedStrOut;
 
     return fixedStrOut;
+}
+
+function resolvePath(pathString: string, activeFile: vscode.Uri): string {
+    const workspaceFolder = vscode.workspace.getWorkspaceFolder(activeFile)?.uri.fsPath || '';
+    const fileDirname = path.dirname(activeFile.fsPath);
+    const fileBasename = path.basename(activeFile.fsPath);
+    const fileBasenameNoExtension = path.basename(activeFile.fsPath, path.extname(activeFile.fsPath));
+    const fileExtname = path.extname(activeFile.fsPath);
+    const execPath = process.execPath;
+
+    pathString = pathString.replace('${workspaceFolder}', workspaceFolder);
+    pathString = pathString.replace('${file}', activeFile.fsPath);
+    pathString = pathString.replace('${fileDirname}', fileDirname);
+    pathString = pathString.replace('${fileBasename}', fileBasename);
+    pathString = pathString.replace('${fileBasenameNoExtension}', fileBasenameNoExtension);
+    pathString = pathString.replace('${fileExtname}', fileExtname);
+    pathString = pathString.replace('${execPath}', execPath);
+
+    return pathString;
 }
 
 function isOffsetInLastLineAndEqualToBrace(originalCode: string, offset: number): boolean {
